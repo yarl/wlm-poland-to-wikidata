@@ -144,3 +144,8 @@ LAST	P1435	Q21438156
 LAST	P131 "${monument.town}"	S143	Q28563569
  `);
 }
+
+makeRequest('GET', './places.json').then((response) => {
+  const places = JSON.parse(response);
+  console.log(Object.keys(places).length);
+});
