@@ -1,23 +1,35 @@
-document.getElementById('run-button').onclick = runProcessing;
-
 let data = [];
 let loading = document.querySelector('.loading');
+
+let placesList = {};
+let categoriesList = [];
+
+init();
+
+/* Init */
+
+function init() {
+  document.getElementById('run-button').onclick = runProcessing;
+  makeRequest('GET', './places.json').then((response) => {
+    placesList = JSON.parse(response);
+    console.info(`List of places loaded: ${Object.keys(placesList).length}`);
+  });
+
+  makeRequest('GET', './categories.json').then((response) => {
+    categoriesList = JSON.parse(response).categories;
+    console.info(`List of categories loaded: ${categoriesList.length}`);
+  });
+}
 
 /* Main function */
 
 function runProcessing() {
-  loading.classList.remove('hidden');
   data = document.getElementById('input').value;
 
   splitByRow();
   splitByField();
 
   normalizeObjects();
-  getWikidataTowns()
-    .then((response) => {
-      console.log('response', response);
-      loading.classList.add('hidden');
-    });
   transformToQuickStatement();
   data = data.join('\n');
   document.getElementById('output').value = data;
@@ -25,107 +37,82 @@ function runProcessing() {
 
 /* Functions */
 
-function getListOfTowns() {
-  const list = [];
-  data.forEach((monument) => {
-    const place = `${monument.town}@${monument.gmina}`;
-    if (!list.includes(place)) {
-      list.push(place);
-    }
-  });
-  return list;
-}
-
-function getTownId(townName, gminaName) {
-  const endpoint = '//query.wikidata.org/sparql?query=';
-  let query = `SELECT DISTINCT ?place ?placeLabel WHERE {
-  { ?place wdt:P31 wd:Q515 } UNION { ?place wdt:P31 wd:Q3558970 } .
-  ?place wdt:P17 wd:Q36; wdt:P131 ?gmina .
-  ?place rdfs:label ?placeLabel .
-  ?gmina rdfs:label ?gminaLabel
-  FILTER(LANG(?placeLabel) = "pl") .
-  FILTER(LANG(?gminaLabel) = "pl") .
-  FILTER(STR(?placeLabel) = "${townName}") .
-  FILTER(STRENDS(?gminaLabel, "${gminaName}")).
-}`;
-  query = encodeURIComponent(query).replace(/%20/g, '+');
-  return makeRequest('GET', endpoint + query);
-}
-
-function getWikidataTowns() {
-  const list = getListOfTowns();
-  const promises = list.map((place) => {
-    const split = place.split('@');
-    return getTownId(split[0], split[1]);
-  });
-  const pairs = {};
-  return Promise.all(promises)
-    .then((response) => {
-      response = response.map(re => JSON.parse(re).results.bindings);
-      list.forEach((element, index) => {
-        pairs[element] = response[index];
-      });
-      return pairs;
-    })
-    .catch(err => err);
-}
-
+/**
+ * This function is used as XHR wrapper
+ * @param {String} method
+ * @param {String} url
+ */
 function makeRequest(method, url) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
-    xhr.setRequestHeader('Accept','application/json');
+    xhr.setRequestHeader('Accept', 'application/json');
     xhr.onload = function success() {
       (this.status >= 200 && this.status < 300) ?
         resolve(xhr.response) :
         reject({ status: this.status, statusText: xhr.statusText });
     };
     xhr.onerror = function err() {
-      reject({ status: this.status, statusText: xhr.statusText })
+      reject({ status: this.status, statusText: xhr.statusText });
     };
     xhr.send();
   });
 }
 
-function normalizeGmina(monument) {
-  // console.log(monument)
-  monument.gmina = monument.gmina.replace('gmina ', '');
-}
-
-function normalizeName(monument) {
-  const parts = monument.name.split(', ');
-  monument.name = parts[0];
-  monument.date = parts[1];
-}
-
+/**
+ * This function removes wikicode from monument town
+ * @param {Object} monument
+ */
 function normalizeTown(monument) {
   const regex = /\[\[(.*\|)?(.*)\]\]/g;
   const array = regex.exec(monument.town);
   if (array && array.length > 1) {
-    monument.town = array[2];
+    return array[2];
   }
+  return monument.town;
 }
 
+/**
+ * This function is editing raw monument data, so it can be used for
+ * QuickStatements entries
+ */
 function normalizeObjects() {
   data.forEach((monument) => {
-    normalizeGmina(monument);
-    normalizeName(monument);
-    normalizeTown(monument);
+    if (!monument) { return; }
+
+    // console.info(monument);
+    monument.gmina = monument.gmina.replace('gmina ', '');
+    monument.powiat = monument.powiat.replace('powiat ', '');
+    monument.town = normalizeTown(monument);
+
+    if (monument.coords.includes('NULL')) {
+      monument.coords = undefined;
+    }
+
+    const nameParts = monument.name.split(', ');
+    monument.name = nameParts[0];
+    monument.date = nameParts[1];
+
+    const placeCode = `${monument.town}@${monument.gmina}@${monument.powiat}`;
+    monument.placeId = placesList[placeCode] ? placesList[placeCode] : '';
   });
 }
 
 function splitByField() {
   data = data.map((element) => {
+    if (!element.trim()) { return false; }
+
     const array = element.split('\t');
     return {
-      id: array[0],
+      id: array[0].trim(),
+      powiat: array[2],
       gmina: array[3],
       town: array[4],
       reg: array[5],
       complex: array[6],
       name: array[7],
       address: array[8],
-      coords: `${array[9]}/${array[10]}`,
+      coords: `@${array[9]}/${array[10]}`,
       photo: array[12],
       commons: array[13],
     };
@@ -137,15 +124,29 @@ function splitByRow() {
 }
 
 function transformToQuickStatement() {
-  data = data.map(monument => `CREATE
-LAST	Lpl "${monument.name}"	S143	Q28563569
-LAST	P17	Q36
-LAST	P1435	Q21438156
-LAST	P131 "${monument.town}"	S143	Q28563569
- `);
-}
+  const numbers = {
+    total: data.length,
+    noPlaceId: 0,
+    categoryTaken: 0,
+  };
 
-makeRequest('GET', './places.json').then((response) => {
-  const places = JSON.parse(response);
-  console.log(Object.keys(places).length);
-});
+  data = data.map((monument) => {
+    const query = ['\nCREATE'];
+    if (monument.name) { query.push(`LAST	Lpl	"${monument.name}"	S143	Q28563569`); }
+    query.push('LAST	P17	Q36');
+    if (monument.placeId) {
+      query.push(`LAST	P131	${monument.placeId}	S143	Q28563569`);
+    } else {
+      numbers.noPlaceId += 1;
+    }
+    query.push('LAST	P1435	Q21438156');
+    if (monument.id) { query.push(`LAST	P2186	"PL-${monument.id}"	S143	Q28563569`); }
+    if (monument.coords) { query.push(`LAST	P625	${monument.coords}	S143	Q28563569`); }
+    if (monument.commons) {
+      if (categoriesList.includes(monument.commons)) { numbers.categoryTaken += 1; }
+      else { query.push(`LAST	P373	"${monument.commons}"`); }
+    }
+    return query.join('\n');
+  });
+  console.log(numbers);
+}
