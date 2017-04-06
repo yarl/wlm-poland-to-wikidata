@@ -84,6 +84,7 @@ function normalizeObjects() {
     monument.gmina = monument.gmina.replace('gmina ', '');
     monument.powiat = monument.powiat.replace('powiat ', '');
     monument.town = normalizeTown(monument);
+    monument.address = monument.address.replace(/[Uu]l\.? /g, '').replace(/[Aa]l\.? /g, 'aleja');
 
     if (monument.coords.includes('NULL')) {
       monument.coords = undefined;
@@ -132,19 +133,40 @@ function transformToQuickStatement() {
 
   data = data.map((monument) => {
     const query = ['\nCREATE'];
-    if (monument.name) { query.push(`LAST	Lpl	"${monument.name}"	S143	Q28563569`); }
+    if (monument.name) {
+      query.push(`LAST	Lpl	"${monument.name}"	S143	Q28563569`);
+    }
     query.push('LAST	P17	Q36');
     if (monument.placeId) {
       query.push(`LAST	P131	${monument.placeId}	S143	Q28563569`);
     } else {
       numbers.noPlaceId += 1;
     }
+    if (monument.address) {
+      query.push(`LAST	P969	"${monument.address}"	S143	Q28563569`);
+    }
+
     query.push('LAST	P1435	Q21438156');
-    if (monument.id) { query.push(`LAST	P2186	"PL-${monument.id}"	S143	Q28563569`); }
-    if (monument.coords) { query.push(`LAST	P625	${monument.coords}	S143	Q28563569`); }
+    if (monument.reg) {
+      query.push(`LAST	P3424	"${monument.reg}"	S143	Q28563569`);
+    }
+    if (monument.id) {
+      query.push(`LAST	P2186	"PL-${monument.id}"	S143	Q28563569`);
+    }
+
+    if (monument.coords) {
+      query.push(`LAST	P625	${monument.coords}	S143	Q28563569`);
+    }
+
+    if (monument.photo) {
+      query.push(`LAST	P18	"${monument.photo}"	S143	Q28563569`);
+    }
     if (monument.commons) {
-      if (categoriesList.includes(monument.commons)) { numbers.categoryTaken += 1; }
-      else { query.push(`LAST	P373	"${monument.commons}"`); }
+      if (categoriesList.includes(monument.commons)) {
+        numbers.categoryTaken += 1;
+      } else {
+        query.push(`LAST	P373	"${monument.commons}"`);
+      }
     }
     return query.join('\n');
   });
