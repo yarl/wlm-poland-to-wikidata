@@ -5,5 +5,6 @@ module.exports = {
   },
   "extends": ["airbnb"],
   "rules": {
+    "no-use-before-define": [2, { "functions": false }]
   }
 }
