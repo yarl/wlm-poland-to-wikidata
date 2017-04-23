@@ -9,6 +9,7 @@ init();
 /* Init */
 
 function init() {
+  console.clear();
   document.getElementById('run-button').onclick = runProcessing;
   makeRequest('GET', './places.json').then((response) => {
     placesList = JSON.parse(response);
@@ -59,6 +60,48 @@ function makeRequest(method, url) {
   });
 }
 
+function normalizeName(monument) {
+  const regex = /((p?ok?\.? )?([12][0-9]{3}(-[12][0-9]{3})?( r\.)?)|(([12] poł\. )?(l\. [1-9]0\.?[- ]([1-9]0\.? )?)?(kon\.? )?(pocz\.? )?([VIX]{1,5}\/)?[VIX]{1,5}( w\.)?))/g;
+  const nameParts = monument.name.split(', ').map(part => ({ text: part, match: part.match(regex) }));
+
+  let name = nameParts.filter(part => !part.match).map(part => part.text.trim()).join(', ');
+  name = name[0].toUpperCase() + name.slice(1);
+  name = name.replace('par.', '').replace('fil.', '').replace(/p\.?w./g, '').replace(/ +/g, ' ');
+  monument.name = name;
+
+  let dates = nameParts.filter(part => part.match).map(part => part.text.trim());
+  monument.date = dates.length ? dates[0] : undefined;
+}
+
+function normalizeRegNumber(monument) {
+  const regex = /([0-9a-zA-Z\.\/\-]*)( z | i z | i |, |, z )([0-9]{1,2}.[0-9]{1,2}.[0-9]{4})*/g;
+  monument.reg = monument.reg
+    .split(';')
+    .map(number => number.trim())
+    .map((number) => {
+      regex.lastIndex = 0;
+      const matches = regex.exec(number);
+      if (!matches) { return undefined; }
+
+      let date;
+      if (matches && matches.length === 4) {
+        const rawDate = matches[3];
+        const parts = rawDate.split('.');
+        if (parts.length === 3) {
+          date = `+${parts[2]}-${parts[1]}-${parts[0]}T00:00:00Z/11`;
+        }
+      }
+
+      return {
+        _raw: number,
+        number: matches[1],
+        date,
+      };
+    });
+
+  console.log(monument);
+}
+
 /**
  * This function removes wikicode from monument town
  * @param {Object} monument
@@ -80,6 +123,8 @@ function normalizeObjects() {
   data.forEach((monument) => {
     if (!monument) { return; }
 
+    normalizeName(monument);
+
     // console.info(monument);
     monument.gmina = monument.gmina.replace('gmina ', '');
     monument.powiat = monument.powiat.replace('powiat ', '');
@@ -90,9 +135,7 @@ function normalizeObjects() {
       monument.coords = undefined;
     }
 
-    const nameParts = monument.name.split(', ');
-    monument.name = nameParts[0];
-    monument.date = nameParts[1];
+    normalizeRegNumber(monument);
 
     const placeCode = `${monument.town}@${monument.gmina}@${monument.powiat}`;
     monument.placeId = placesList[placeCode] ? placesList[placeCode] : '';
@@ -133,42 +176,35 @@ function transformToQuickStatement() {
 
   data = data.map((monument) => {
     const query = ['\nCREATE'];
-    if (monument.name) {
-      query.push(`LAST	Lpl	"${monument.name}"	S143	Q28563569`);
+    if (categoriesList.includes(monument.commons)) {
+      numbers.categoryTaken += 1;
+      query.push('---------- DUPLICATED (CATEGORY) ----------');
     }
-    query.push('LAST	P17	Q36');
-    if (monument.placeId) {
-      query.push(`LAST	P131	${monument.placeId}	S143	Q28563569`);
-    } else {
+    if (!monument.placeId) {
       numbers.noPlaceId += 1;
     }
-    if (monument.address) {
-      query.push(`LAST	P969	"${monument.address}"	S143	Q28563569`);
-    }
 
-    query.push('LAST	P1435	Q21438156');
-    if (monument.reg) {
-      query.push(`LAST	P3424	"${monument.reg}"	S143	Q28563569`);
-    }
-    if (monument.id) {
-      query.push(`LAST	P2186	"PL-${monument.id}"	S143	Q28563569`);
-    }
-
-    if (monument.coords) {
-      query.push(`LAST	P625	${monument.coords}	S143	Q28563569`);
-    }
-
-    if (monument.photo) {
-      query.push(`LAST	P18	"${monument.photo}"	S143	Q28563569`);
-    }
-    if (monument.commons) {
-      if (categoriesList.includes(monument.commons)) {
-        numbers.categoryTaken += 1;
-      } else {
-        query.push(`LAST	P373	"${monument.commons}"`);
+    query.push(`LAST\tLpl\t${monument.name}`);
+    query.push('LAST\tP17\tQ36');
+    addLine(query, 'P131', monument.placeId, monument.placeId);
+    addLine(query, 'P969', monument.address);
+    query.push('LAST\tP1435\tQ21438156');
+    monument.reg.forEach((number) => {
+      if (number && number.number) {
+        addLine(query, 'P3424', number.number, `"${number.number}"\tP585\t${number.date}`);
       }
-    }
+    });
+    addLine(query, 'P2186', monument.id, `"PL-${monument.id}"`);
+    addLine(query, 'P571', monument.date);
+    addLine(query, 'P625', monument.coords);
+    addLine(query, 'P18', monument.photo);
+    addLine(query, 'P373', monument.commons);
     return query.join('\n');
   });
-  console.log(numbers);
+}
+
+function addLine(query, property, value, valuePaste) {
+  if (value) {
+    query.push(`LAST\t${property}\t${valuePaste || '"' + value + '"'}\tS143\tQ28563569`);
+  }
 }
