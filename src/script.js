@@ -60,6 +60,55 @@ function makeRequest(method, url) {
   });
 }
 
+const places = {
+  'aleja': 'Q207934',
+  'baszta': 'Q81917',
+  'budynek': 'Q41176',
+  'cerkiew': 'Q2031836',
+  'cmentarz': 'Q39614',
+  'dom': 'Q3947',
+  'dwór': 'Q16974307',
+  'dzwonnica': 'Q200334',
+  'grobowiec': 'Q381885',
+  'kamienica': 'Q1723032',
+  'kaplica': 'Q108325',
+  'klasztor': 'Q44613',
+  'kostnica': 'Q6451172',
+  'kościół': 'Q16970',
+  'młyn': 'Q185187',
+  'obora': 'Q681337',
+  'oficyna': 'Q488654',
+  'park': 'Q22698',
+  'pałac': 'Q16560',
+  'pensjonat': 'Q1065252',
+  'pomnik': 'Q4989906',
+  'ratusz': 'Q543654',
+  'spichrz': 'Q114768',
+  'spichlerz': 'Q114768',
+  'stajnia': 'Q214252',
+  'stajnie': 'Q214252',
+  'synagoga': 'Q34627',
+  'ujeżdżalnia': 'Q415917',
+  'wieża': 'Q12518',
+  'wieża ciśnień': 'Q274153',
+  'willa': 'Q3950',
+  'wozownia': 'Q9377898',
+  'zamek': 'Q23413',
+  'zespół budynków': 'Q1497364',
+  'zespół cmentarza': 'Q19691007',
+  'zespół dworski': 'Q28843623',
+  'zespół dworsko-parkowy': 'Q28843623',
+  'zespół parkowo-dworski': 'Q28843623',
+  'zespół fabryczny': 'Q1497364',
+  'zespół kościoła': 'Q19691007',
+  'zespół parkowy': 'Q4156067',
+  'zespół parkowo-pałacowy': 'Q4156067',
+  'zespół pałacowo-parkowy': 'Q4156067',
+  'zespół willi': 'Q1497364',
+  'zespół klasztorny': 'Q1497364',
+  'zespół cerkwi': 'Q19691007',
+};
+
 function normalizeName(monument) {
   const regex = /((p?ok?\.? )?([12][0-9]{3}(-[12][0-9]{3})?( r\.)?)|(([12] poł\. )?(l\. [1-9]0\.?[- ]([1-9]0\.? )?)?(kon\.? )?(pocz\.? )?([VIX]{1,5}\/)?[VIX]{1,5}( w\.)?))/g;
   const nameParts = monument.name.split(', ').map(part => ({ text: part, match: part.match(regex) }));
@@ -68,6 +117,12 @@ function normalizeName(monument) {
   name = name[0].toUpperCase() + name.slice(1);
   name = name.replace('par.', '').replace('fil.', '').replace(/p\.?w./g, '').replace(/ +/g, ' ');
   monument.name = name;
+
+  Object.keys(places).forEach((element) => {
+    if (name.toLowerCase().includes(element)) {
+      monument.type = places[element];
+    }
+  });
 
   let dates = nameParts.filter(part => part.match).map(part => part.text.trim());
   monument.date = dates.length ? dates[0] : undefined;
@@ -186,6 +241,7 @@ function transformToQuickStatement() {
 
     query.push(`LAST\tLpl\t${monument.name}`);
     query.push('LAST\tP17\tQ36');
+    addLine(query, 'P31', monument.type, monument.type);
     addLine(query, 'P131', monument.placeId, monument.placeId);
     addLine(query, 'P969', monument.address);
     query.push('LAST\tP1435\tQ21438156');
