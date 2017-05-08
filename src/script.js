@@ -61,39 +61,39 @@ function makeRequest(method, url) {
 }
 
 const places = {
-  'aleja': 'Q207934',
-  'baszta': 'Q81917',
-  'budynek': 'Q41176',
-  'cerkiew': 'Q2031836',
-  'cmentarz': 'Q39614',
-  'dom': 'Q3947',
-  'dwór': 'Q16974307',
-  'dzwonnica': 'Q200334',
-  'grobowiec': 'Q381885',
-  'kamienica': 'Q1723032',
-  'kaplica': 'Q108325',
-  'klasztor': 'Q44613',
-  'kostnica': 'Q6451172',
-  'kościół': 'Q16970',
-  'młyn': 'Q185187',
-  'obora': 'Q681337',
-  'oficyna': 'Q488654',
-  'park': 'Q22698',
-  'pałac': 'Q16560',
-  'pensjonat': 'Q1065252',
-  'pomnik': 'Q4989906',
-  'ratusz': 'Q543654',
-  'spichrz': 'Q114768',
-  'spichlerz': 'Q114768',
-  'stajnia': 'Q214252',
-  'stajnie': 'Q214252',
-  'synagoga': 'Q34627',
-  'ujeżdżalnia': 'Q415917',
-  'wieża': 'Q12518',
+  aleja: 'Q207934',
+  baszta: 'Q81917',
+  budynek: 'Q41176',
+  cerkiew: 'Q2031836',
+  cmentarz: 'Q39614',
+  dom: 'Q3947',
+  dwór: 'Q16974307',
+  dzwonnica: 'Q200334',
+  grobowiec: 'Q381885',
+  kamienica: 'Q1723032',
+  kaplica: 'Q108325',
+  klasztor: 'Q44613',
+  kostnica: 'Q6451172',
+  kościół: 'Q16970',
+  młyn: 'Q185187',
+  obora: 'Q681337',
+  oficyna: 'Q488654',
+  park: 'Q22698',
+  pałac: 'Q16560',
+  pensjonat: 'Q1065252',
+  pomnik: 'Q4989906',
+  ratusz: 'Q543654',
+  spichrz: 'Q114768',
+  spichlerz: 'Q114768',
+  stajnia: 'Q214252',
+  stajnie: 'Q214252',
+  synagoga: 'Q34627',
+  ujeżdżalnia: 'Q415917',
+  wieża: 'Q12518',
   'wieża ciśnień': 'Q274153',
-  'willa': 'Q3950',
-  'wozownia': 'Q9377898',
-  'zamek': 'Q23413',
+  willa: 'Q3950',
+  wozownia: 'Q9377898',
+  zamek: 'Q23413',
   'zespół budynków': 'Q1497364',
   'zespół cmentarza': 'Q19691007',
   'zespół dworski': 'Q28843623',
@@ -109,7 +109,34 @@ const places = {
   'zespół cerkwi': 'Q19691007',
 };
 
+function normalizeDate(monument) {
+  if (!monument.date) return;
+
+  const year = /[a-z.]?([12][0-9]{3})(-[12][0-9]{3})?.*/g;
+  const test = year.exec(monument.date);
+
+  // YYYY
+  if (test && test.length && test[0].length === 4) {
+    monument.date = `+${test[1]}-01-01T00:00:00Z/09`;
+    return;
+  }
+
+  // YYYY-YYYY
+  if (test && test.length && test[0].length === 9 && test[2].length === 5) {
+    test[2] = test[2].substring(1);
+    monument.date = `+${test[2]}-01-01T00:00:00Z/09`;
+    monument.moment = { type: 'Q385378', start: `+${test[1]}-01-01T00:00:00Z/09`, end: `+${test[2]}-01-01T00:00:00Z/09` };
+    return;
+  }
+
+  monument.date = undefined;
+}
+
 function normalizeName(monument) {
+  if (monument.name.includes('<br')) {
+    monument.name = monument.name.substring(0, monument.name.indexOf('<br'));
+  }
+
   const regex = /((p?ok?\.? )?([12][0-9]{3}(-[12][0-9]{3})?( r\.)?)|(([12] poł\. )?(l\. [1-9]0\.?[- ]([1-9]0\.? )?)?(kon\.? )?(pocz\.? )?([VIX]{1,5}\/)?[VIX]{1,5}( w\.)?))/g;
   const nameParts = monument.name.split(', ').map(part => ({ text: part, match: part.match(regex) }));
 
@@ -118,18 +145,22 @@ function normalizeName(monument) {
   name = name.replace('par.', '').replace('fil.', '').replace(/p\.?w./g, '').replace(/ +/g, ' ');
   monument.name = name;
 
+  if ((name === 'Dom' || name === 'Kamienica') && monument.address) {
+    monument.name = monument.address;
+  }
+
   Object.keys(places).forEach((element) => {
     if (name.toLowerCase().includes(element)) {
       monument.type = places[element];
     }
   });
 
-  let dates = nameParts.filter(part => part.match).map(part => part.text.trim());
+  const dates = nameParts.filter(part => part.match).map(part => part.text.trim());
   monument.date = dates.length ? dates[0] : undefined;
 }
 
 function normalizeRegNumber(monument) {
-  const regex = /([0-9a-zA-Z\.\/\-]*)( z | i z | i |, |, z )([0-9]{1,2}.[0-9]{1,2}.[0-9]{4})*/g;
+  const regex = /([0-9a-zA-Z./-]*)( z | i z | i |, |, z )([0-9]{1,2}.[0-9]{1,2}.[0-9]{4})*/g;
   monument.reg = monument.reg
     .split(';')
     .map(number => number.trim())
@@ -143,6 +174,8 @@ function normalizeRegNumber(monument) {
         const rawDate = matches[3];
         const parts = rawDate.split('.');
         if (parts.length === 3) {
+          parts[0] = parts[0].length === 1 ? `0${parts[0]}` : parts[0];
+          parts[1] = parts[1].length === 1 ? `0${parts[1]}` : parts[1];
           date = `+${parts[2]}-${parts[1]}-${parts[0]}T00:00:00Z/11`;
         }
       }
@@ -178,13 +211,14 @@ function normalizeObjects() {
   data.forEach((monument) => {
     if (!monument) { return; }
 
+    monument.address = monument.address.replace(/[Uu]l\.? /g, '').replace(/[Aa]l\.? /g, 'aleja');
     normalizeName(monument);
+    normalizeDate(monument);
 
     // console.info(monument);
     monument.gmina = monument.gmina.replace('gmina ', '');
     monument.powiat = monument.powiat.replace('powiat ', '');
     monument.town = normalizeTown(monument);
-    monument.address = monument.address.replace(/[Uu]l\.? /g, '').replace(/[Aa]l\.? /g, 'aleja');
 
     if (monument.coords.includes('NULL')) {
       monument.coords = undefined;
@@ -230,6 +264,8 @@ function transformToQuickStatement() {
   };
 
   data = data.map((monument) => {
+    if (!monument) return '';
+
     const query = ['\nCREATE'];
     if (categoriesList.includes(monument.commons)) {
       numbers.categoryTaken += 1;
@@ -239,7 +275,7 @@ function transformToQuickStatement() {
       numbers.noPlaceId += 1;
     }
 
-    query.push(`LAST\tLpl\t${monument.name}`);
+    query.push(`LAST\tLpl\t"${monument.name}"`);
     query.push('LAST\tP17\tQ36');
     addLine(query, 'P31', monument.type, monument.type);
     addLine(query, 'P131', monument.placeId, monument.placeId);
@@ -251,8 +287,11 @@ function transformToQuickStatement() {
       }
     });
     addLine(query, 'P2186', monument.id, `"PL-${monument.id}"`);
-    addLine(query, 'P571', monument.date);
-    addLine(query, 'P625', monument.coords);
+    addLine(query, 'P571', monument.date, `${monument.date}`);
+    if (monument.moment) {
+      addLine(query, 'P793', monument.moment, `${monument.moment.type}\tP582\t${monument.moment.end}\tP580\t${monument.moment.start}`);
+    }
+    addLine(query, 'P625', monument.coords, `${monument.coords}`);
     addLine(query, 'P18', monument.photo);
     addLine(query, 'P373', monument.commons);
     return query.join('\n');
